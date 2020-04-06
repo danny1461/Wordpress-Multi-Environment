@@ -67,9 +67,6 @@ function getConfig_WPSiteSettings() {
 				'pass'   => 'password',
 				'dbname' => 'wordpress_db',
 
-				// Multisite Arguments
-				'subdomains' => false,
-
 				// Site(s) on this server
 				'sites' => array(
 					// DOMAIN => BLOG_ID
@@ -144,23 +141,39 @@ CONFIG;
 		if ($this->config['multisite']) {
 			// Define multisite constants
 
-			define('WP_ALLOW_MULTISITE', true);
+			// define('WP_ALLOW_MULTISITE', true);
 			define('MULTISITE', true);
-			define('SUBDOMAIN_INSTALL', $this->matchedServer['subdomains']);
+			define('SUBDOMAIN_INSTALL', $this->matchedServer['url_parts'][$this->matchedBaseUrl]['path'] == '/');
 			define('DOMAIN_CURRENT_SITE', $_SERVER['SERVER_NAME']);
 			define('PATH_CURRENT_SITE', $this->sitePath . '/');
 			define('SITE_ID_CURRENT_SITE', 1);
 			define('BLOG_ID_CURRENT_SITE', 1);
 
 			// Take over how WP determines the site ID
-			$filters['pre_get_site_by_path'] = array(
-				1 => array(
-					array(
-						'function' => array($this, 'getSiteByPath'),
-						'accepted_args' => 5
-					)
-				)
-			);
+			global $current_site;
+			$current_site = new stdClass();
+			$current_site->id = 1;
+			$current_site->domain = $this->matchedServer['url_parts'][$this->matchedBaseUrl]['host'];
+			$current_site->path = $this->matchedServer['url_parts'][$this->matchedBaseUrl]['path'];
+			$current_site->blog_id = 1;
+
+			global $current_blog;
+			$current_blog = new stdClass();
+			$current_blog->blog_id = $this->matchedBlogId;
+			$current_blog->domain = $this->matchedServer['url_parts'][$this->matchedBaseUrl]['host'];
+			$current_blog->path = $this->matchedServer['url_parts'][$this->matchedBaseUrl]['path'];
+			$current_blog->site_id = 1;
+			$current_blog->registered = '0000-00-00 00:00:00';
+			$current_blog->last_updated = '0000-00-00 00:00:00';
+			$current_blog->public = '1';
+			$current_blog->archived = '0';
+			$current_blog->mature = '0';
+			$current_blog->spam = '0';
+			$current_blog->deleted = '0';
+			$current_blog->lang_id = '0';
+
+			global $blog_id;
+			$blog_id = $this->matchedBlogId;
 		}
 
 		// Tweak how WP reads it's baseurl. This prevents WP from sending redirects before it even starts
@@ -205,57 +218,6 @@ CONFIG;
 		}
 
 		return $value;
-	}
-
-	/**
-	 * Runs as part of the pre_get_site_by_path filter
-	 *
-	 * @param StdClass|null $site
-	 * @param [type] $domain
-	 * @param [type] $path
-	 * @param [type] $segments
-	 * @param [type] $paths
-	 * @return StdClass
-	 */
-	public function getSiteByPath($site, $domain, $path, $segments, $paths) {
-		global $wpdb;
-
-		if ($site) {
-			return $site;
-		}
-
-		// Match my domain
-		$matchedBaseUrl = '';
-		foreach ($this->matchedServer['url_parts'] as $baseUrl => $parts) {
-			if ($parts['host'] == $domain && $parts['path'] == $paths[0]) {
-				$matchedBaseUrl = $baseUrl;
-			}
-		}
-
-		if (!$matchedBaseUrl) {
-			return null;
-		}
-
-		$siteObj = $wpdb->get_results(/** @lang MySQL */
-			"
-			SELECT
-				*
-			FROM
-				{$wpdb->base_prefix}blogs
-			WHERE
-				blog_id = {$this->matchedServer['sites'][$matchedBaseUrl]} AND
-				site_id = 1
-		");
-
-		if (!$siteObj) {
-			return null;
-		}
-
-		$siteObj = $siteObj[0];
-		$siteObj->domain = $this->matchedServer['url_parts'][$matchedBaseUrl]['host'];
-		$siteObj->path = rtrim($this->matchedServer['url_parts'][$matchedBaseUrl]['path'], '/') . '/';
-
-		return $siteObj;
 	}
 
 	public function shutdownFunction() {
