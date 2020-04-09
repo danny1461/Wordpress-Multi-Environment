@@ -29,11 +29,13 @@ class WPSiteSettings
 {
 	private static $instance = null;
 
+	private $configPath;
 	private $config;
 	private $fullRequest;
 	private $sitePath;
 
 	private $matchedServer;
+	private $matchedServerNdx;
 	private $matchedBaseUrl;
 	private $matchedBlogId;
 
@@ -44,7 +46,9 @@ class WPSiteSettings
 	}
 
 	private function readConfig() {
-		if (!file_exists(__DIR__ . '/site-settings-config.php')) {
+		$this->configPath = __DIR__ . '/site-settings-config.php';
+
+		if (!file_exists($this->configPath)) {
 			// Get license
 			if (preg_match('/\/\\*\\*(?:.|\\s)*?\\*\\//', @file_get_contents(__FILE__), $license)) {
 				$license = $license[0] . "\n\n";
@@ -77,12 +81,12 @@ function getConfig_WPSiteSettings() {
 	);
 }
 CONFIG;
-			file_put_contents(__DIR__ . '/site-settings-config.php', $license . trim($configTemplate));
+			file_put_contents($this->configPath, $license . trim($configTemplate));
 
 			die('Please add your database connection info to site-settings-config.php');
 		}
 
-		require_once(__DIR__ . '/site-settings-config.php');
+		require_once($this->configPath);
 
 		$this->config = getConfig_WPSiteSettings();
 		foreach ($this->config['servers'] as $serverNdx => $server) {
@@ -125,6 +129,7 @@ CONFIG;
 					if ($matchScore > $bestMatchScore) {
 						$bestMatchScore = $matchScore;
 						$this->matchedServer = $server;
+						$this->matchedServerNdx = $serverNdx;
 						$this->matchedBaseUrl = $baseUrl;
 						$this->matchedBlogId = $siteId;
 					}
@@ -232,7 +237,121 @@ CONFIG;
 			$html = str_replace(str_replace('/', '\\/', $server['blogIds'][$this->matchedBlogId]), $this->matchedBaseUrl, $html);	// json encoded too?
 		}
 
+		// Is Multisite being installed?
+		$this->multisiteInstallation($html);
+
 		echo $html;
+	}
+
+	private function multisiteInstallation(&$html) {
+		// Installation phase
+		if (constant('WP_ALLOW_MULTISITE') == true && $this->config['multisite'] == false) {
+			if ($this->endswith($_SERVER['REQUEST_URI'], '/wp-admin/network.php')) {
+				if (!$_POST) {
+					$html = preg_replace('/<h3>Server Address.*?We recommend you change your siteurl.*?<\/p>/s', '', $html);
+					$html = preg_replace('/<tr>.*?Because your?.*?<\/tr>/s', '', $html);
+	
+					// Check if config is read/writable
+					if (is_writable($this->configPath)) {
+						$message = 'Continue as normal... and follow all prompts. Your config will be updated automatically';
+					}
+					else {
+						$message = '<strong style="color: red;">PHP does not have access to the <code>site-settings-config.php</code>. Halting installation...</strong>';
+						$html = preg_replace('/value="Install"/', 'value="Install" disabled="disabled"', $html);
+					}
+	
+					$html = preg_replace('/<tr>.*?Server Address.*?<\/tr>/s', '<tr><th scope="row">Wordpress Multi Environment</th><td>' . $message . '</td></tr>', $html);
+				}
+				else {
+					$configStr = file_get_contents($this->configPath);
+					$configStr = preg_replace('/(([\'"])multisite\\2\s*=>\s*)[^,)]+(.)/', '$1true$3', $configStr);
+					file_put_contents($this->configPath, $configStr);
+	
+					$html = preg_replace('/<p>\s*Add the following.*?wp-config\.php.*?<\/textarea>/s', '<p><strong>Wordpress Multi Environment:</strong> Your config files have been patched. Skip to step 2.</p>', $html);
+				}
+			}
+		}
+		// Adding site phase
+		elseif ($this->config['multisite']) {
+			if ($this->endswith($_SERVER['SCRIPT_NAME'], '/wp-admin/network/site-new.php') && isset($_GET['id'])) {
+				$blogId = intval($_GET['id']);
+
+				if (!isset($this->matchedServer['blogIds'][$blogId])) {
+					global $wpdb;
+
+					$record = $wpdb->get_results($wpdb->prepare("SELECT * FROM {$wpdb->blogs} WHERE blog_id = %d", array(
+						$blogId
+					)));
+	
+					if ($record) {
+						$record = $record[0];
+
+						if ($this->matchedServer['subdomains']) {
+							$partial = explode('.', $record['domain']);
+							$partial = reset($partial);
+						}
+						else {
+							$partial = rtrim(substr($record->path, strlen($this->matchedServer['url_parts'][$this->matchedServer['blogIds'][1]]['path'])), '/');
+						}
+
+						// Prepare new config
+						$config = $this->config;
+						foreach ($config['servers'] as $ndx => $server) {
+							unset($config['servers'][$ndx]['url_parts']);
+							unset($config['servers'][$ndx]['blogIds']);
+
+							$urlParts = $server['url_parts'][$server['blogIds'][1]];
+							if ($server['subdomains']) {
+								$newBaseUrl = $urlParts['scheme'] . '://' . $partial . '.' . $urlParts['host'];
+							}
+							else {
+								$newBaseUrl = rtrim($urlParts['scheme'] . '://' . $urlParts['host'] . $urlParts['path'] . $partial, '/');
+							}
+
+							$config['servers'][$ndx]['sites'][$newBaseUrl] = intval($_GET['id']);
+						}
+
+						// Load pretty encoder
+						require_once(__DIR__ . '/Kit-PHPEncoder-2.4.0/autoload.php');
+
+						// Generate pretty output
+						$encoder = new \Riimu\Kit\PHPEncoder\PHPEncoder();
+						$config = $encoder->encode($config, array(
+							'array.inline' => false,
+							'array.indent' => "\t",
+							'array.short'  => false,
+							'array.align'  => true
+						));
+						unset($encoder);
+
+						// Indent by 1 tab
+						$config = explode("\n", $config);
+						$config = implode("\n\t", $config);
+
+						// Add spacing and comments back
+						$config = preg_replace('/(([\'"])multisite\\2[^,]+,)/', "$1\n", $config);
+						$config = preg_replace('/(([\'"])host\\2)/', "// DB Arguments\n\t\t\t\t$1", $config);
+						$config = preg_replace('/(\\t+([\'"])subdomains\\2)/', "\n\t\t\t\t// Multisite Arguments\n$1", $config);
+						$config = preg_replace('/(\\t+([\'"])sites\\2)/', "\n\t\t\t\t// Site(s) on this server\n$1", $config);
+
+						// Add resulting config to file
+						$configStr = file_get_contents($this->configPath);
+						$configStr = preg_replace('/function\\s+getConfig_WPSiteSettings\\s*\\(\\)(?:\\s|\\n)*\\{(?:\\s|\\n)*return[^;]+?;/', "function getConfig_WPSiteSettings() {\n\treturn {$config};", $configStr);
+						file_put_contents($this->configPath, $configStr);
+					}
+				}
+			}
+		}
+	}
+
+	private function endsWith($haystack, $needle)
+	{
+		$length = strlen($needle);
+		if ($length == 0) {
+			return true;
+		}
+	
+		return (substr($haystack, -$length) === $needle);
 	}
 
 	public static function getInstance() {
