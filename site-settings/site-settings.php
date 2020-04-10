@@ -237,15 +237,17 @@ CONFIG;
 			$html = str_replace(str_replace('/', '\\/', $server['blogIds'][$this->matchedBlogId]), $this->matchedBaseUrl, $html);	// json encoded too?
 		}
 
-		// Is Multisite being installed?
-		$this->multisiteInstallation($html);
+		// Handle multisite config issues
+		if (constant('WP_ALLOW_MULTISITE') == true) {
+			$this->multisiteInstallation($html);
+		}
 
 		echo $html;
 	}
 
 	private function multisiteInstallation(&$html) {
 		// Installation phase
-		if (constant('WP_ALLOW_MULTISITE') == true && $this->config['multisite'] == false) {
+		if ($this->config['multisite'] == false) {
 			if ($this->endswith($_SERVER['REQUEST_URI'], '/wp-admin/network.php')) {
 				if (!$_POST) {
 					$html = preg_replace('/<h3>Server Address.*?We recommend you change your siteurl.*?<\/p>/s', '', $html);
@@ -271,8 +273,9 @@ CONFIG;
 				}
 			}
 		}
+
 		// Adding site phase
-		elseif ($this->config['multisite']) {
+		else {
 			if ($this->endswith($_SERVER['SCRIPT_NAME'], '/wp-admin/network/site-new.php') && isset($_GET['id'])) {
 				$blogId = intval($_GET['id']);
 
