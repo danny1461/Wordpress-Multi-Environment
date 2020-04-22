@@ -238,7 +238,7 @@ CONFIG;
 		}
 
 		// Handle multisite config issues
-		if (constant('WP_ALLOW_MULTISITE') == true) {
+		if (defined('WP_ALLOW_MULTISITE') && WP_ALLOW_MULTISITE == true) {
 			$this->multisiteInstallation($html);
 		}
 
