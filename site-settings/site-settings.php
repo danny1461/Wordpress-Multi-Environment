@@ -227,14 +227,16 @@ CONFIG;
 
 	public function shutdownFunction() {
 		$html = ob_get_clean();
-
+		
 		foreach ($this->config['servers'] as $server) {
-			if ($server['blogIds'][$this->matchedBlogId] == $this->matchedBaseUrl) {
-				continue;
-			}
+			foreach ($server['blogIds'] as $blogId => $baseUrl) {
+				if ($baseUrl == $this->matchedBaseUrl) {
+					continue;
+				}
 
-			$html = str_replace($server['blogIds'][$this->matchedBlogId], $this->matchedBaseUrl, $html);
-			$html = str_replace(str_replace('/', '\\/', $server['blogIds'][$this->matchedBlogId]), $this->matchedBaseUrl, $html);	// json encoded too?
+				$html = str_replace($baseUrl, $this->matchedServer['blogIds'][$blogId], $html);
+				$html = str_replace(str_replace('/', '\\/', $baseUrl), $this->matchedServer['blogIds'][$blogId], $html);	// json encoded too?
+			}
 		}
 
 		// Handle multisite config issues
