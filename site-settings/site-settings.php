@@ -83,7 +83,7 @@ function getConfig_WPSiteSettings() {
 CONFIG;
 			file_put_contents($this->configPath, $license . trim($configTemplate));
 
-			die('Please add your database connection info to site-settings-config.php');
+			die('Please add your database connection info to sites-settings/site-settings-config.php');
 		}
 
 		require_once($this->configPath);
