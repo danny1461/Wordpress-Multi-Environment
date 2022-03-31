@@ -206,8 +206,7 @@ CONFIG;
 
 		// We register a shutdown function to correct urls from content stored in db
 		// Internal links and such
-		register_shutdown_function(array($this, 'shutdownFunction'));
-		ob_start();
+		ob_start(array($this, 'shutdownFunction'));
 	}
 
 	/** Returns the proper base url for the current site
@@ -225,9 +224,7 @@ CONFIG;
 		return $value;
 	}
 
-	public function shutdownFunction() {
-		$html = ob_get_clean();
-		
+	public function shutdownFunction($html) {
 		foreach ($this->config['servers'] as $server) {
 			foreach ($server['blogIds'] as $blogId => $baseUrl) {
 				if ($baseUrl == $this->matchedBaseUrl) {
@@ -244,7 +241,7 @@ CONFIG;
 			$this->multisiteInstallation($html);
 		}
 
-		echo $html;
+		return $html;
 	}
 
 	private function multisiteInstallation(&$html) {
